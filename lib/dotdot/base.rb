@@ -3,48 +3,15 @@ module Dotdot
     attr_reader :database
 
     def initialize(object)
-      @object = object
       @database = nil
-      @sql_options = { :logger => @object.logger, :sql_log_level => :info }
+      @object   = object
+      @options  = object.options
+      @logger   = Logger.new(STDOUT)
+      @sql_options = { :logger => @logger, :sql_log_level => :info }
 
-      if @object.options[:verbose]
+      if @options[:verbose]
         @sql_options[:sql_log_level] = :debug
       end
-    end
-
-    def boot
-      @database = Sequel.sqlite(@object.db_path, @sql_options)
-      @group = ""
-      @prefix_stack = []
-
-      @dataset = @database[:cablingdatas]
-    end
-
-    def final_key(key)
-      unless @prefix_stack.empty?
-        @prefix_stack.push(key)
-        key = nil
-      end
-
-      key ||= @prefix_stack.join('.')
-    end
-
-    def set(key, value, group = nil)
-      group ||= @group
-      key = final_key(key)
-
-      @dataset.insert(:key => key, :value => value, :group => group)
-
-      stack_pop
-    end
-
-    def delete_key(key, group = nil)
-      group ||= @group
-
-      key = final_key(key)
-
-      @dataset.filter(:key => key, :group => group).delete
-      stack_pop
     end
 
     def update(key, value, group = nil)
@@ -77,10 +44,6 @@ module Dotdot
       yield
 
       stack_pop
-    end
-
-    def stack_pop
-      @prefix_stack.pop
     end
 
     def has_key?(key, group)
@@ -142,6 +105,47 @@ module Dotdot
       else
         raise "no values for \'#{key}\'!"
       end
+    end
+
+    def set(key, value, group = nil)
+      group ||= @group
+      key = final_key(key)
+
+      @dataset.insert(:key => key, :value => value, :group => group)
+
+      stack_pop
+    end
+
+    private
+
+    def final_key(key)
+      unless @prefix_stack.empty?
+        @prefix_stack.push(key)
+        key = nil
+      end
+
+      key ||= @prefix_stack.join('.')
+    end
+
+    def boot
+      @database = Sequel.sqlite(@object.db_path, @sql_options)
+      @group = ""
+      @prefix_stack = []
+
+      @dataset = @database[:cablingdatas]
+    end
+
+    def delete_key(key, group = nil)
+      group ||= @group
+
+      key = final_key(key)
+
+      @dataset.filter(:key => key, :group => group).delete
+      stack_pop
+    end
+
+    def stack_pop
+      @prefix_stack.pop
     end
 
     def create_table_if_needed
