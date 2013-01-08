@@ -1,13 +1,13 @@
 module Dotdot
   class Base
-    attr_reader :database
-
     def initialize(object)
-      @database = nil
-      @object   = object
-      @options  = object.options
-      @logger   = Logger.new(STDOUT)
-      @sql_options = { :logger => @logger, :sql_log_level => :info }
+      @group        = ""
+      @object       = object
+      @logger       = Logger.new(STDOUT)
+      @sql_options  = { :logger => @logger, :sql_log_level => :info }
+      @prefix_stack = []
+      @database     = Sequel.sqlite(@object.db_path, @sql_options)
+      @dataset      = @database[:cablingdatas]
 
       if @options[:verbose]
         @sql_options[:sql_log_level] = :debug
@@ -116,6 +116,15 @@ module Dotdot
       stack_pop
     end
 
+    def delete_key(key, group = nil)
+      group ||= @group
+
+      key = final_key(key)
+
+      @dataset.filter(:key => key, :group => group).delete
+      stack_pop
+    end
+
     private
 
     def final_key(key)
@@ -125,23 +134,6 @@ module Dotdot
       end
 
       key ||= @prefix_stack.join('.')
-    end
-
-    def boot
-      @database = Sequel.sqlite(@object.db_path, @sql_options)
-      @group = ""
-      @prefix_stack = []
-
-      @dataset = @database[:cablingdatas]
-    end
-
-    def delete_key(key, group = nil)
-      group ||= @group
-
-      key = final_key(key)
-
-      @dataset.filter(:key => key, :group => group).delete
-      stack_pop
     end
 
     def stack_pop
