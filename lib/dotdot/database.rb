@@ -1,17 +1,26 @@
 module Dotdot
-  class Base
-    def initialize(object)
-      @group        = ""
-      @object       = object
+  class Database
+    attr_reader :root, :options
+
+    def initialize(options)
       @logger       = Logger.new(STDOUT)
+      @options      = { 'path'    => Dir.pwd,
+                        'group'   => nil,
+                        'verbose' => false }.merge(options)
+
       @sql_options  = { :logger => @logger, :sql_log_level => :info }
       @prefix_stack = []
-      @database     = Sequel.sqlite(@object.db_path, @sql_options)
-      @dataset      = @database[:cablingdatas]
+    end
 
-      if @options[:verbose]
-        @sql_options[:sql_log_level] = :debug
-      end
+    def setup
+      @sql_options[:logger].level = @options['verbose'] ? Logger::DEBUG : Logger::WARN
+
+      @root    = @options['path']
+      @file    = File.join(root, FILE_DIR ,"#{@options['target']}#{FILE_EXTENSION}")
+      @db      = Sequel.sqlite(@file, @sql_options)
+      @dataset = @db[:dotdot]
+
+      create_table_if_needed
     end
 
     def update(key, value, group = nil)
@@ -24,9 +33,9 @@ module Dotdot
     end
 
     def group(group = nil, &block)
-      @group = group
+      @group ||= group
 
-      @database.transaction do
+      @db.transaction do
         yield
       end
     end
@@ -34,7 +43,7 @@ module Dotdot
     def globals(&block)
       @group = "globals"
 
-      @database.transaction do
+      @db.transaction do
         yield
       end
     end
@@ -47,7 +56,7 @@ module Dotdot
     end
 
     def has_key?(key, group)
-      group ||= @object.group.to_s
+      group ||= group.to_s
 
       val = @dataset.where(:key => key, :group => group).count
 
@@ -61,7 +70,7 @@ module Dotdot
     end
 
     def get(key, group = nil)
-      group ||= @object.group.to_s
+      group ||= group.to_s
 
       val = @dataset.where(:key => key, :group => group)
 
@@ -77,13 +86,13 @@ module Dotdot
     end
 
     def get_if_key_exists(key, group = nil)
-      group ||= @object.group.to_s
+      group ||= group.to_s
 
       get(key, group) if has_key?(key, group)
     end
 
     def get_children(key, group = nil)
-      group ||= @object.group.to_s
+      group ||= group.to_s
       values = []
 
       res = @dataset.where(:key.like("#{key}%"), :group => group)
@@ -125,6 +134,15 @@ module Dotdot
       stack_pop
     end
 
+    protected
+
+    def migrate
+      init_file = File.join(@options['path'], INIT_FILE)
+      require init_file if File.exist?(init_file)
+
+      Migration.new(self).start
+    end
+
     private
 
     def final_key(key)
@@ -141,11 +159,11 @@ module Dotdot
     end
 
     def create_table_if_needed
-      if @database.tables.include? :cablingdatas
-        @database.drop_table :cablingdatas
+      if @db.tables.include? :dotdot
+        @db.drop_table :dotdot
       end
 
-      @database.create_table :cablingdatas do
+      @db.create_table :dotdot do
         String :key
         String :value
         String :group

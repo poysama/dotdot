@@ -2,29 +2,25 @@ module Dotdot
   class Migration
     include Helpers
 
-    attr_reader :object
-    attr_reader :db
+    attr_reader :options
 
-    def initialize(object)
-      @object = object
-
-      @db = @object.db
-      @cabling_path = @object.cabling_path
+    def initialize(database)
+      @database = database
+      @options  = database.options
+      @db_root  = @database.root
     end
 
-    def boot
-      @db.create_table_if_needed
-
+    def start
       file_stack = []
 
       sort_directories.each do |p|
-        path = File.join(@cabling_path, p)
+        path = File.join(@db_root, p)
 
         if p == 'targets'
-          if !@object.location.nil? && @object.location != @object.target
-            f = File.join(path, "#{@object.target}_#{@object.location}.rb")
+          if !@options['location'].empty? && @options['location'] != @options['target']
+            f = File.join(path, "#{@options['target']}_#{@options['location']}.rb")
           else
-            f = File.join(path, "#{@object.target}.rb")
+            f = File.join(path, "#{@options['target']}.rb")
           end
 
           if File.exists?(f)
@@ -34,8 +30,8 @@ module Dotdot
             raise "File #{f} doesn't exist!"
           end
         elsif p == '.'
-          if File.exist?(File.join(path, 'custom.rb'))
-            f = Dir["#{path}/custom.rb"].shift
+          if File.exist?(File.join(path, CUSTOM_FILE))
+            f = Dir["#{path}/#{CUSTOM_FILE}"].shift
             require f
             file_stack.push(f)
           end
@@ -49,8 +45,8 @@ module Dotdot
         file_stack.each do |f|
           class_name = File.basename(f).chomp(".rb")
           camelized_class_name = camelize(class_name)
-          klass = Palmade::Cableguy::Migrations.const_get(camelized_class_name)
-          k = klass.new(@object)
+          klass = Dotdot::Migrations.const_get(camelized_class_name)
+          k = klass.new(@database)
           k.migrate!
         end
         file_stack.clear
@@ -61,33 +57,34 @@ module Dotdot
       dir_stack = ["base", "targets", '.']
     end
 
+    protected
+
     def migrate!
       raise "class #{self.class.name} doesn't have a migrate method. Override!"
     end
 
     def set(key, value, set = nil)
-      @db.set(key, value, set)
+      @database.set(key, value, set)
     end
 
     def group(group, &block)
-      @group = group
-      @db.group(@group, &block)
+      @database.group(group, &block)
     end
 
     def globals(&block)
-      @db.globals(&block)
+      @database.globals(&block)
     end
 
     def prefix(prefix, &block)
-      @db.prefix(prefix, &block)
+      @database.prefix(prefix, &block)
     end
 
     def delete_key(key, group = nil)
-      @db.delete_key(key, group)
+      @database.delete_key(key, group)
     end
 
     def update(key, value)
-      @db.update(key, value)
+      @database.update(key, value)
     end
   end
 end
